@@ -88,7 +88,6 @@ jobs:
         shell: bash
 
       - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: terraform apply -input=false -auto-approve tfplan
         working-directory: infra/terraform
         shell: bash
