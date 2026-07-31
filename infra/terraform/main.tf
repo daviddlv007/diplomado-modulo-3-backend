@@ -89,17 +89,30 @@ output "ec2_private_key_pem" {
   sensitive = true
 }
 
-# --- Repositorio ECR ---
+# --- Repositorio ECR backend ---
 
 resource "aws_ecr_repository" "backend" {
   name                 = "phoenix-orders-backend"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
   }
 }
 
+
+# --- Repositorio ECR frontend ---
+
+resource "aws_ecr_repository" "frontend" {
+  name                 = "phoenix-frontend"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
 
 # --- IAM Role + Instance Profile (lectura de ECR) ---
 
