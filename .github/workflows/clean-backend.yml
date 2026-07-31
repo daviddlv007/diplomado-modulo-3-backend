@@ -1,4 +1,4 @@
-name: Backend Cleanup Total
+name: Backend Cleanup
 
 on:
   workflow_dispatch:
