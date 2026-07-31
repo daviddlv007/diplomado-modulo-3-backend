@@ -3,10 +3,7 @@
 name: Backend CI/CD
 
 on:
-  pull_request:
-    branches: [main, develop]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
