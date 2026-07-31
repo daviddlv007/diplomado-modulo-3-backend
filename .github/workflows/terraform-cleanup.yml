@@ -1,0 +1,123 @@
+name: Terraform/Backend Cleanup Total
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      TF_BUCKET: ${{ secrets.BACKEND_BUCKET }}
+      TF_TABLE: ${{ secrets.BACKEND_TABLE }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Leer region desde terraform.tfvars
+        id: read-tfvars
+        run: |
+          set -euo pipefail
+          REGION=$(grep 'aws_region' infra/terraform/terraform.tfvars | awk -F '=' '{print $2}' | tr -d ' "')
+          echo "TF_REGION=${REGION:-us-east-1}" >> "$GITHUB_ENV"
+          echo "Región leída: $REGION"
+
+      - name: Validar secrets requeridos
+        run: |
+          if [ -z "${TF_BUCKET:-}" ]; then
+            echo "ERROR: secret BACKEND_BUCKET no definido."
+            exit 1
+          fi
+          if [ -z "${TF_TABLE:-}" ]; then
+            echo "ERROR: secret BACKEND_TABLE no definido."
+            exit 1
+          fi
+        shell: bash
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.TF_REGION }}
+
+      - name: Validar backend remoto existe
+        run: |
+          if ! aws s3api head-bucket --bucket "$TF_BUCKET" 2>/dev/null; then
+            echo "ERROR: Bucket S3 $TF_BUCKET no existe."
+            exit 1
+          fi
+          if ! aws dynamodb describe-table --table-name "$TF_TABLE" >/dev/null 2>&1; then
+            echo "WARNING: Tabla DynamoDB $TF_TABLE no existe. Se continuará sin locking."
+          fi
+        shell: bash
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Init (configura backend en S3/DynamoDB)
+        run: |
+          BACKEND_ARGS="-backend-config=bucket=$TF_BUCKET \
+                        -backend-config=region=$TF_REGION \
+                        -backend-config=key=terraform.tfstate"
+          
+          # Agregar tabla si existe
+          if aws dynamodb describe-table --table-name "$TF_TABLE" >/dev/null 2>&1; then
+            BACKEND_ARGS="$BACKEND_ARGS -backend-config=dynamodb_table=$TF_TABLE"
+          fi
+
+          terraform init $BACKEND_ARGS -reconfigure
+        working-directory: infra/terraform
+        shell: bash
+
+      - name: Terraform Destroy Resources
+        run: |
+          set -euo pipefail
+          WORKDIR="infra/terraform"
+          cd "$WORKDIR"
+
+          LOCK_FLAG=""
+          if aws dynamodb describe-table --table-name "$TF_TABLE" >/dev/null 2>&1; then
+            echo "Tabla DynamoDB encontrada. Usando lock."
+            LOCK_FLAG="-lock=true"
+          else
+            echo "Tabla DynamoDB no encontrada. No se usará lock."
+            LOCK_FLAG="-lock=false"
+          fi
+
+          terraform destroy -auto-approve -input=false $LOCK_FLAG
+        shell: bash
+
+      - name: Cleanup Backend (S3 + DynamoDB)
+        run: |
+          set -euo pipefail
+          echo "Eliminando tabla DynamoDB (si existe)..."
+          if aws dynamodb describe-table --table-name "$TF_TABLE" >/dev/null 2>&1; then
+            aws dynamodb delete-table --table-name "$TF_TABLE" --region "$TF_REGION"
+            echo "Tabla DynamoDB eliminada."
+          else
+            echo "Tabla DynamoDB no existe."
+          fi
+
+          echo "Eliminando bucket S3 y contenido (si existe, manejando versioning)..."
+          if aws s3api head-bucket --bucket "$TF_BUCKET" 2>/dev/null; then
+            aws s3api list-object-versions --bucket "$TF_BUCKET" --output=json | \
+            jq -r '.Versions[]?, .DeleteMarkers[]? | "\(.Key):\(.VersionId)"' | \
+            while IFS=: read key version; do
+              aws s3api delete-object --bucket "$TF_BUCKET" --key "$key" --version-id "$version"
+            done
+
+            aws s3api delete-bucket --bucket "$TF_BUCKET" --region "$TF_REGION"
+            echo "Bucket S3 eliminado."
+          else
+            echo "Bucket S3 no existe."
+          fi
+
+          echo "Cleanup total completado."
+        shell: bash
