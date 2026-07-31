@@ -89,15 +89,52 @@ output "ec2_private_key_pem" {
   sensitive = true
 }
 
+# --- Repositorio ECR ---
+
+resource "aws_ecr_repository" "backend" {
+  name                 = "phoenix-orders-backend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+
+# --- IAM Role + Instance Profile (lectura de ECR) ---
+
+resource "aws_iam_role" "ec2_ecr_role" {
+  name = "${var.project_name}-ec2-ecr-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecr_read" {
+  role       = aws_iam_role.ec2_ecr_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_instance_profile" "ec2_ecr_profile" {
+  name = "${var.project_name}-ec2-ecr-profile"
+  role = aws_iam_role.ec2_ecr_role.name
+}
+
+
 
 
 # --- EC2 usando el SG MVP ---
 resource "aws_instance" "this" {
-  ami           = var.ami
-  instance_type = var.instance_type
-  key_name      = aws_key_pair.ec2_key.key_name
-
+  ami                    = var.ami
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.ec2_key.key_name
   vpc_security_group_ids = [aws_security_group.mvp_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2_ecr_profile.name
 
   root_block_device {
     volume_size = var.volume_size
@@ -108,5 +145,4 @@ resource "aws_instance" "this" {
     Name = "${var.project_name}-ec2"
   }
 }
-
 

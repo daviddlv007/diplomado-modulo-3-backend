@@ -63,7 +63,6 @@ jobs:
   docker:
     name: Build & push imagen (Amazon ECR)
     needs: ci
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.meta.outputs.tag }}
@@ -142,7 +141,6 @@ jobs:
   deploy:
     name: CD (Postgres + API en EC2)
     needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       # AWS_REGION y ECR_REPOSITORY se heredan del env global del workflow.
