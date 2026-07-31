@@ -79,6 +79,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login en Amazon ECR
@@ -166,6 +167,19 @@ jobs:
               exit 1
             fi
 
+            # --- Bootstrap: instala Docker solo si no existe ---
+            if ! command -v docker &> /dev/null; then
+              echo "Docker no encontrado. Instalando..."
+              sudo dnf update -y
+              sudo dnf install -y docker
+              sudo systemctl enable --now docker
+              sudo mkdir -p /usr/local/lib/docker/cli-plugins
+              sudo curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+                -o /usr/local/lib/docker/cli-plugins/docker-compose
+              sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+              echo "Docker instalado correctamente."
+            fi
+
             # La EC2 tiene un IAM Role con lectura a ECR: no hay claves en el server.
             ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
             REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -173,16 +187,16 @@ jobs:
             echo "Desplegando imagen: ${IMAGE}"
 
             aws ecr get-login-password --region "${AWS_REGION}" \
-              | docker login --username AWS --password-stdin "${REGISTRY}"
+              | sudo docker login --username AWS --password-stdin "${REGISTRY}"
 
             # Red Docker COMPARTIDA con el frontend (nginx la usa para llegar a 'backend').
-            docker network create web 2>/dev/null || true
+            sudo docker network create web 2>/dev/null || true
 
             # Postgres en el mismo EC2 (persistente). Hostname para el API: phoenix-db
-            if docker ps -a --format '{{.Names}}' | grep -qx 'phoenix-db'; then
-              docker start phoenix-db 2>/dev/null || true
+            if sudo docker ps -a --format '{{.Names}}' | grep -qx 'phoenix-db'; then
+              sudo docker start phoenix-db 2>/dev/null || true
             else
-              docker run -d \
+              sudo docker run -d \
                 --name phoenix-db \
                 --network web \
                 --restart unless-stopped \
@@ -195,27 +209,27 @@ jobs:
 
             echo "Esperando Postgres..."
             for i in $(seq 1 30); do
-              if docker exec phoenix-db pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
+              if sudo docker exec phoenix-db pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null 2>&1; then
                 echo "Postgres listo."
                 break
               fi
               if [ "$i" -eq 30 ]; then
                 echo "ERROR: Postgres no respondió a tiempo"
-                docker logs phoenix-db --tail 50 || true
+                sudo docker logs phoenix-db --tail 50 || true
                 exit 1
               fi
               sleep 2
             done
 
-            docker pull "$IMAGE"
+            sudo docker pull "$IMAGE"
 
-            docker stop backend 2>/dev/null || true
-            docker rm backend 2>/dev/null || true
+            sudo docker stop backend 2>/dev/null || true
+            sudo docker rm backend 2>/dev/null || true
 
             # Contenedor 'backend' en la red 'web', puerto 3000 INTERNO (sin -p):
             # el nginx del frontend lo alcanza como http://backend:3000. No se
             # publica al host. DB_HOST = nombre del contenedor de Postgres.
-            docker run -d \
+            sudo docker run -d \
               --name backend \
               --network web \
               --restart unless-stopped \
@@ -230,4 +244,4 @@ jobs:
               -e CORS_ORIGIN="$CORS_ORIGIN" \
               "$IMAGE"
 
-            docker image prune -f
+            sudo docker image prune -f
