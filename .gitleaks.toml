@@ -1,0 +1,5 @@
+[allowlist]
+description = "Falsos positivos conocidos"
+regexes = [
+  '''nestjs/nest/master\?token=''',
+]
