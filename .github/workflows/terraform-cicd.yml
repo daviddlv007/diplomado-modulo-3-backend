@@ -142,7 +142,10 @@ jobs:
             fi
             gh secret set EC2_USER --body "$EC2_USER"
             gh secret set EC2_HOST --body "$EC2_HOST"
-            echo "Secrets EC2_USER y EC2_HOST creados/actualizados."
+            terraform output -raw ec2_private_key_pem > ec2_key.pem
+            gh secret set EC2_SSH_KEY < ec2_key.pem
+            rm ec2_key.pem
+            echo "Secrets EC2_USER, EC2_HOST y EC2_SSH_KEY creados/actualizados."
           else
             echo "No se detectó IP pública. No se crearon secrets EC2."
           fi

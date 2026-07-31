@@ -18,10 +18,6 @@ variable "instance_type" {
   description = "Tipo de instancia"
 }
 
-variable "key_name" {
-  type        = string
-  description = "Key pair para EC2"
-}
 
 variable "volume_size" {
   type        = number

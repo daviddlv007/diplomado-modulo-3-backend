@@ -147,11 +147,11 @@ jobs:
     env:
       # AWS_REGION y ECR_REPOSITORY se heredan del env global del workflow.
       IMAGE_TAG: ${{ needs.docker.outputs.image_tag }}
-      DB_PORT: ${{ secrets.DB_PORT }}
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
-      CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: phoenixdb
+      CORS_ORIGIN: http://localhost:3000
     steps:
       - name: Deploy por SSH (login ECR, Postgres, API)
         uses: appleboy/ssh-action@v1.2.0
